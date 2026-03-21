@@ -7,6 +7,11 @@ import type {
   ItemListResponse,
   UpdateItemResponse
 } from "@shared/types/sapo.types";
+import type {
+  ModifySetCreateRequest,
+  ModifySetCreateResponse,
+  ModifySetMappingResponse
+} from "@shared/types/modify-set.types";
 import type { TaxSelection } from "./batch.types";
 
 export interface SiteAuthContext {
@@ -145,13 +150,16 @@ export class SiteApiClient {
     });
   }
 
-  async getItems(page: number, limit: number, categoryId?: string): Promise<ItemListResponse> {
+  async getItems(page: number, limit: number, categoryId?: string, name?: string): Promise<ItemListResponse> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit)
     });
     if (categoryId) {
       params.set("category_id", categoryId);
+    }
+    if (name && name.trim()) {
+      params.set("name", name.trim());
     }
 
     return this.request<ItemListResponse>({
@@ -172,6 +180,26 @@ export class SiteApiClient {
       method: "PUT",
       path: `/admin/items/${encodeURIComponent(clientId)}.json`,
       body: JSON.stringify({ item })
+    });
+  }
+
+  async createModifySet(payload: ModifySetCreateRequest): Promise<ModifySetCreateResponse> {
+    return this.request<ModifySetCreateResponse>({
+      method: "POST",
+      path: "/admin/modify_sets.json",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async mapModifySetToItems(modSetId: string, itemIds: string[]): Promise<ModifySetMappingResponse | unknown> {
+    const params = new URLSearchParams({
+      modSetId,
+      itemIds: itemIds.join(",")
+    });
+
+    return this.request<ModifySetMappingResponse | unknown>({
+      method: "POST",
+      path: `/admin/items/modify_set_mapping.json?${params.toString()}`
     });
   }
 
