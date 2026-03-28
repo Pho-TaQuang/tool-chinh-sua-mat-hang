@@ -12,7 +12,11 @@ import type {
   ModifySetCreateResponse,
   ModifySetMappingResponse
 } from "@shared/types/modify-set.types";
-import type { TaxSelection } from "./batch.types";
+import { createApiError } from "@shared/http/api-error";
+import { parseResponseBody } from "@shared/http/response";
+import { parseRetryAfterToMs } from "@shared/http/retry";
+import { buildSapoAuthHeaders } from "@shared/sapo/auth-headers";
+import type { TaxSelection } from "./tax/types";
 
 export interface SiteAuthContext {
   csrfToken: string | null;
@@ -36,91 +40,6 @@ export interface VatPitCategory {
 
 interface VatPitCategoriesResponse {
   vat_pit_categories: VatPitCategory[];
-}
-
-function createApiError(input: {
-  status: number;
-  code: string;
-  message: string;
-  retryable: boolean;
-  details?: unknown;
-  retryAfterMs?: number;
-}): ApiError {
-  const error: ApiError = {
-    status: input.status,
-    code: input.code,
-    message: input.message,
-    retryable: input.retryable
-  };
-  if (input.details !== undefined) {
-    error.details = input.details;
-  }
-  if (input.retryAfterMs !== undefined) {
-    error.retryAfterMs = input.retryAfterMs;
-  }
-  return error;
-}
-
-function parseRetryAfterToMs(retryAfter: string | null, nowMs: number): number | undefined {
-  if (!retryAfter) {
-    return undefined;
-  }
-  const trimmed = retryAfter.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  const seconds = Number(trimmed);
-  if (!Number.isNaN(seconds) && seconds >= 0) {
-    return Math.floor(seconds * 1000);
-  }
-
-  const parsedDate = Date.parse(trimmed);
-  if (Number.isNaN(parsedDate)) {
-    return undefined;
-  }
-  return Math.max(0, parsedDate - nowMs);
-}
-
-function buildAuthHeaders(context: SiteAuthContext, hasBody: boolean): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: "application/json, text/plain, */*",
-    "X-Requested-With": "XMLHttpRequest"
-  };
-
-  if (context.csrfToken) {
-    headers["X-CSRF-Token"] = context.csrfToken;
-  }
-  if (context.fnbToken) {
-    headers["x-fnb-token"] = context.fnbToken;
-  }
-  if (context.merchantId) {
-    headers["x-merchant-id"] = context.merchantId;
-  }
-  if (context.storeId) {
-    headers["x-store-id"] = context.storeId;
-  }
-  if (hasBody) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  return headers;
-}
-
-async function parseResponseBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    try {
-      return await response.json();
-    } catch {
-      return null;
-    }
-  }
-  try {
-    const text = await response.text();
-    return text.length > 0 ? text : null;
-  } catch {
-    return null;
-  }
 }
 
 export class SiteApiClient {
@@ -206,7 +125,7 @@ export class SiteApiClient {
   async request<T>(input: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; body?: string }): Promise<T> {
     const context = this.getContext();
     const url = new URL(input.path, context.shopOrigin);
-    const headers = buildAuthHeaders(context, Boolean(input.body));
+    const headers = buildSapoAuthHeaders(context, Boolean(input.body));
 
     let response: Response;
     try {

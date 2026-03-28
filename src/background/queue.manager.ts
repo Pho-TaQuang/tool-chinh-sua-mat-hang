@@ -1,7 +1,9 @@
 import type { ApiError } from "@shared/types/sapo.types";
+import { createApiError } from "@shared/http/api-error";
+import { parseResponseBody } from "@shared/http/response";
+import { computeRetryDelayMs, parseRetryAfterToMs, shouldRetry } from "@shared/http/retry";
 
 const STORAGE_KEY = "sapo_batch_queue_v1";
-const MAX_BACKOFF_MS = 30_000;
 const RESTORE_JITTER_MS = 150;
 
 export type QueueJobStatus = "pending" | "running" | "success" | "failed" | "cancelled";
@@ -128,81 +130,12 @@ function defaultDependencies(): QueueDependencies {
   };
 }
 
-function createApiError(input: {
-  status: number;
-  code: string;
-  message: string;
-  details?: unknown;
-  retryable: boolean;
-  retryAfterMs?: number;
-}): ApiError {
-  const error: ApiError = {
-    status: input.status,
-    code: input.code,
-    message: input.message,
-    retryable: input.retryable
-  };
-  if (input.details !== undefined) {
-    error.details = input.details;
-  }
-  if (input.retryAfterMs !== undefined) {
-    error.retryAfterMs = input.retryAfterMs;
-  }
-  return error;
-}
-
-function parseRetryAfterToMs(retryAfter: string | null, nowMs: number): number | undefined {
-  if (!retryAfter) {
-    return undefined;
-  }
-
-  const trimmed = retryAfter.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  const asSeconds = Number(trimmed);
-  if (!Number.isNaN(asSeconds) && asSeconds >= 0) {
-    return Math.floor(asSeconds * 1000);
-  }
-
-  const parsedDate = Date.parse(trimmed);
-  if (Number.isNaN(parsedDate)) {
-    return undefined;
-  }
-
-  const delta = parsedDate - nowMs;
-  if (delta <= 0) {
-    return 0;
-  }
-
-  return delta;
-}
-
 function toHeadersObject(headers: Headers): Record<string, string> {
   const entries: Record<string, string> = {};
   headers.forEach((value, key) => {
     entries[key] = value;
   });
   return entries;
-}
-
-async function parseResponseBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    try {
-      return await response.json();
-    } catch {
-      return null;
-    }
-  }
-
-  try {
-    const text = await response.text();
-    return text.length > 0 ? text : null;
-  } catch {
-    return null;
-  }
 }
 
 export class QueueManager {
@@ -500,14 +433,18 @@ export class QueueManager {
   private async handleFailure(job: QueueJobRecord, error: ApiError): Promise<void> {
     const now = this.deps.now();
     const nextRetryIndex = job.retriesUsed + 1;
-    const retryWindow = this.computeRetryDelayMs(error, nextRetryIndex);
+    const retryWindow = computeRetryDelayMs({
+      error,
+      retryIndex: nextRetryIndex,
+      jitterMs: this.policy.jitterMs,
+      random: this.deps.random
+    });
     const nextEligibleAt = now + retryWindow;
-    const shouldRetry =
-      error.retryable &&
-      job.retriesUsed < this.policy.maxRetries &&
+    const retryAllowed =
+      shouldRetry(error, job.retriesUsed, this.policy.maxRetries) &&
       nextEligibleAt <= job.deadlineAt;
 
-    if (shouldRetry) {
+    if (retryAllowed) {
       job.retriesUsed = nextRetryIndex;
       job.nextEligibleAt = nextEligibleAt;
       job.lastError = error;
@@ -527,16 +464,6 @@ export class QueueManager {
     this.emit("progress", job);
     this.emit("error", job);
     this.rejectResolver(job.id, error);
-  }
-
-  private computeRetryDelayMs(error: ApiError, retryIndex: number): number {
-    if (typeof error.retryAfterMs === "number" && error.retryAfterMs >= 0) {
-      return error.retryAfterMs;
-    }
-
-    const jitter = Math.floor(this.deps.random() * (this.policy.jitterMs + 1));
-    const exponential = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.max(0, retryIndex - 1));
-    return exponential + jitter;
   }
 
   private emit(type: keyof QueueListener, job: QueueJobRecord): void {

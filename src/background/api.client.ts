@@ -1,11 +1,12 @@
 import type {
-  ApiError,
   CategoryListResponse,
   ItemDetailResponse,
   ItemListResponse,
   Item,
   UpdateItemResponse
 } from "@shared/types/sapo.types";
+import { createApiError } from "@shared/http/api-error";
+import { buildSapoAuthHeaders } from "@shared/sapo/auth-headers";
 import type { QueueManager, QueueRequestTask } from "./queue.manager";
 
 export interface SapoContext {
@@ -98,34 +99,16 @@ export class SapoApiClient {
     const requiresAuth = input.requiresAuth ?? input.method !== "GET";
     const hasAuthToken = Boolean(context.fnbToken || context.csrfToken);
     if (requiresAuth && !hasAuthToken) {
-      throw this.createApiError({
+      throw createApiError({
         status: 0,
         code: "MISSING_AUTH_TOKEN",
         message:
-          "Không tìm thấy auth token. Hãy mở trang admin Sapo để lấy x-fnb-token hoặc csrf-token rồi thử lại.",
+          "Kh�ng t�m th?y auth token. H�y m? trang admin Sapo d? l?y x-fnb-token ho?c csrf-token r?i th? l?i.",
         retryable: false
       });
     }
 
-    const headers: Record<string, string> = {
-      Accept: "application/json, text/plain, */*",
-      "X-Requested-With": "XMLHttpRequest"
-    };
-    if (context.csrfToken) {
-      headers["X-CSRF-Token"] = context.csrfToken;
-    }
-    if (context.fnbToken) {
-      headers["x-fnb-token"] = context.fnbToken;
-    }
-    if (context.merchantId) {
-      headers["x-merchant-id"] = context.merchantId;
-    }
-    if (context.storeId) {
-      headers["x-store-id"] = context.storeId;
-    }
-    if (input.body) {
-      headers["Content-Type"] = "application/json";
-    }
+    const headers = buildSapoAuthHeaders(context, Boolean(input.body));
 
     const requestTask: QueueRequestTask = {
       method: input.method,
@@ -141,28 +124,5 @@ export class SapoApiClient {
     const enqueued = await this.queue.enqueueRequest(requestTask);
     const response = await enqueued.result;
     return response.body as T;
-  }
-
-  private createApiError(input: {
-    status: number;
-    code: string;
-    message: string;
-    retryable: boolean;
-    details?: unknown;
-    retryAfterMs?: number;
-  }): ApiError {
-    const error: ApiError = {
-      status: input.status,
-      code: input.code,
-      message: input.message,
-      retryable: input.retryable
-    };
-    if (input.details !== undefined) {
-      error.details = input.details;
-    }
-    if (input.retryAfterMs !== undefined) {
-      error.retryAfterMs = input.retryAfterMs;
-    }
-    return error;
   }
 }

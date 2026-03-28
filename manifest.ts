@@ -2,9 +2,10 @@ import { defineManifest } from "@crxjs/vite-plugin";
 
 export default defineManifest({
   manifest_version: 3,
-  name: "Sapo Batch Tool",
-  version: "0.1.0",
-  description: "Internal extension for safe Sapo batch operations.",
+  name: "Tools tổng hợp Sapo FnB",
+  version: "2.1.0",
+  description:
+    "Tiện ích nội bộ cho các thao tác hàng loạt an toàn trên Sapo - by Người yêu của Lê Uyên Sapo phòng FnB 2 Hà Nội",
   permissions: ["storage", "alarms"],
   host_permissions: ["https://fnb.mysapo.vn/*"],
   background: {

@@ -9,6 +9,8 @@ import type {
 } from "@shared/types/runtime.types";
 import { isContentToBackgroundMessage } from "@shared/types/runtime.types";
 import type { ApiError } from "@shared/types/sapo.types";
+import { createApiError, isApiErrorLike } from "@shared/http/api-error";
+import { buildSapoAuthHeaders } from "@shared/sapo/auth-headers";
 import { createRequestId } from "@shared/utils/request-id";
 import { SapoApiClient, type SapoContext } from "./api.client";
 import { QueueManager } from "./queue.manager";
@@ -84,7 +86,7 @@ queueManager.subscribe({
       status: event.job.status === "cancelled" ? "cancelled" : "failed",
       error:
         event.job.lastError ??
-        createError({
+        createApiError({
           status: 0,
           code: "UNKNOWN_QUEUE_ERROR",
           message: "Queue failed without error payload.",
@@ -216,28 +218,10 @@ async function handleMessage(
         );
       }
 
-      const headers: Record<string, string> = {
-        Accept: "application/json, text/plain, */*",
-        "X-Requested-With": "XMLHttpRequest"
-      };
-      if (context.csrfToken) {
-        headers["X-CSRF-Token"] = context.csrfToken;
-      }
-      if (context.fnbToken) {
-        headers["x-fnb-token"] = context.fnbToken;
-      }
-      if (context.merchantId) {
-        headers["x-merchant-id"] = context.merchantId;
-      }
-      if (context.storeId) {
-        headers["x-store-id"] = context.storeId;
-      }
       const body = message.payload.request.body
         ? JSON.stringify(message.payload.request.body)
         : undefined;
-      if (body) {
-        headers["Content-Type"] = "application/json";
-      }
+      const headers = buildSapoAuthHeaders(context, Boolean(body));
 
       const enqueued = await queueManager.enqueueRequest({
         method: message.payload.request.method,
@@ -307,7 +291,7 @@ function ok<T>(data: T): RuntimeResponse<T> {
 function fail(code: string, message: string, details?: unknown): RuntimeResponse {
   return {
     ok: false,
-    error: createError({
+    error: createApiError({
       status: 0,
       code,
       message,
@@ -317,43 +301,13 @@ function fail(code: string, message: string, details?: unknown): RuntimeResponse
   };
 }
 
-function createError(input: {
-  status: number;
-  code: string;
-  message: string;
-  retryable: boolean;
-  details?: unknown;
-  retryAfterMs?: number;
-}): ApiError {
-  const error: ApiError = {
-    status: input.status,
-    code: input.code,
-    message: input.message,
-    retryable: input.retryable
-  };
-  if (input.details !== undefined) {
-    error.details = input.details;
-  }
-  if (input.retryAfterMs !== undefined) {
-    error.retryAfterMs = input.retryAfterMs;
-  }
-  return error;
-}
-
 function normalizeUnknownError(error: unknown): ApiError {
-  if (
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    "message" in error &&
-    "status" in error &&
-    "retryable" in error
-  ) {
+  if (isApiErrorLike(error)) {
     return error as ApiError;
   }
 
   if (error instanceof Error) {
-    return createError({
+    return createApiError({
       status: 0,
       code: "UNHANDLED_EXCEPTION",
       message: error.message,
@@ -362,7 +316,7 @@ function normalizeUnknownError(error: unknown): ApiError {
     });
   }
 
-  return createError({
+  return createApiError({
     status: 0,
     code: "UNKNOWN_ERROR",
     message: "Unknown background worker error.",
