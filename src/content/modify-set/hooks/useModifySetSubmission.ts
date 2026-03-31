@@ -4,8 +4,7 @@ import { ModifySetRunner } from "../runner";
 import type { SiteApiClient } from "../../site.api.client";
 import type {
   ModifySetCardModel,
-  ModifySetPreparedInput,
-  PendingPreview
+  ModifySetPreparedInput
 } from "../types";
 import { validateModifySetDraft } from "../validator";
 import { validateAllSets } from "../state/editor.reducer";
@@ -20,7 +19,6 @@ function toMessage(error: unknown): string {
 interface ModifySetSubmissionOptions {
   apiClient: SiteApiClient | null;
   sets: ModifySetCardModel[];
-  pendingPreview: PendingPreview | null;
   onStatusText: (text: string) => void;
   onShowToast: (message: string, type: "success" | "warn" | "error" | "info") => void;
   onDebugLog?: (level: "debug" | "info" | "warn" | "error", message: string, details?: unknown) => Promise<void>;
@@ -67,11 +65,6 @@ export function useModifySetSubmission(options: ModifySetSubmissionOptions): Mod
   const createAndMap = async (): Promise<void> => {
     if (!runnerRef.current || !options.apiClient) {
       options.onStatusText("API client is not ready.");
-      return;
-    }
-
-    if (options.pendingPreview && options.pendingPreview.preview.invalidRows > 0) {
-      options.onStatusText("Preview still contains invalid rows. Fix the data and import again before submit.");
       return;
     }
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { Clipboard, Upload } from "../../ui/icons";
+import { Upload } from "../../ui/icons";
 import type { ModifySetCardModel } from "../types";
 
 interface ModifySetToolbarProps {
@@ -8,7 +8,6 @@ interface ModifySetToolbarProps {
   total: number;
   percent: number;
   processingSet?: ModifySetCardModel;
-  onPreviewImport: () => void;
   onCreateAndMap: () => void;
 }
 
@@ -18,7 +17,6 @@ export function ModifySetToolbar({
   total,
   percent,
   processingSet,
-  onPreviewImport,
   onCreateAndMap
 }: ModifySetToolbarProps): React.JSX.Element {
   const processingLabel = processingSet ? processingSet.name.trim() || processingSet.localId : "";
@@ -41,9 +39,6 @@ export function ModifySetToolbar({
         </div>
       </div>
       <div className="spx-sync-item">
-        <button className="spx-tool-btn" onClick={onPreviewImport}>
-          <Clipboard /> Preview import
-        </button>
         <button className="spx-big-btn spx-green" onClick={onCreateAndMap} disabled={isSubmitting}>
           <Upload /> {isSubmitting ? "Submitting..." : "Create & map"}
         </button>

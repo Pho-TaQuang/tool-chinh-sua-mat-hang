@@ -62,19 +62,11 @@ export interface ModifySetCardModel {
   validationErrors: ModifySetDraftValidation;
 }
 
-export interface ParsedClipboardRow {
-  lineNumber: number;
-  name: string;
-  priceInput: string;
-  costInput: string;
-  errors: string[];
-}
-
-export interface ClipboardPreview {
-  rows: ParsedClipboardRow[];
-  totalRows: number;
-  validRows: number;
-  invalidRows: number;
+export interface PendingPasteOverflow {
+  setLocalId: string;
+  startRow: number;
+  startCol: MainCol;
+  clipboardGrid: string[][];
 }
 
 export interface ModifySetPreparedInput {
@@ -98,12 +90,6 @@ export interface ModifySetRunnerResult {
   status: ModifySetStatus;
   modSetId: string | null;
   errorMessage?: string;
-}
-
-export interface PendingPreview {
-  setLocalId: string;
-  startRow: number;
-  preview: ClipboardPreview;
 }
 
 export interface FillState {

@@ -34,35 +34,15 @@ export function isRowCompletelyEmpty(row: ModifySetRowModel): boolean {
   );
 }
 
-export function validateModifySetDraft(input: ModifySetCardModel): ModifySetDraftValidation {
-  const setErrors: ModifySetValidationError[] = [];
+export function validateModifySetRows(rows: ModifySetRowModel[]): {
+  rowErrors: ModifySetRowValidationError[];
+  validRowCount: number;
+} {
   const rowErrors: ModifySetRowValidationError[] = [];
-
-  if (!input.name.trim()) {
-    setErrors.push({
-      code: "SET_NAME_REQUIRED",
-      message: "Modify set name is required."
-    });
-  }
-
-  if (input.minQuantity < 0) {
-    setErrors.push({
-      code: "MIN_LT_ZERO",
-      message: "min_quantity must be greater than or equal to 0."
-    });
-  }
-
-  if (input.minQuantity > input.maxQuantity) {
-    setErrors.push({
-      code: "MIN_GT_MAX",
-      message: "min_quantity cannot be greater than max_quantity."
-    });
-  }
-
   let validRowCount = 0;
 
-  for (let index = 0; index < input.rows.length; index += 1) {
-    const row = input.rows[index];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
     if (!row) {
       continue;
     }
@@ -120,14 +100,46 @@ export function validateModifySetDraft(input: ModifySetCardModel): ModifySetDraf
     }
   }
 
-  if (validRowCount === 0) {
+  return {
+    rowErrors,
+    validRowCount
+  };
+}
+
+export function validateModifySetDraft(input: ModifySetCardModel): ModifySetDraftValidation {
+  const setErrors: ModifySetValidationError[] = [];
+
+  if (!input.name.trim()) {
+    setErrors.push({
+      code: "SET_NAME_REQUIRED",
+      message: "Modify set name is required."
+    });
+  }
+
+  if (input.minQuantity < 0) {
+    setErrors.push({
+      code: "MIN_LT_ZERO",
+      message: "min_quantity must be greater than or equal to 0."
+    });
+  }
+
+  if (input.minQuantity > input.maxQuantity) {
+    setErrors.push({
+      code: "MIN_GT_MAX",
+      message: "min_quantity cannot be greater than max_quantity."
+    });
+  }
+
+  const rowValidation = validateModifySetRows(input.rows);
+
+  if (rowValidation.validRowCount === 0) {
     setErrors.push({
       code: "NO_VALID_OPTIONS",
       message: "Modify set must have at least 1 valid option."
     });
   }
 
-  if (input.maxQuantity > validRowCount) {
+  if (input.maxQuantity > rowValidation.validRowCount) {
     setErrors.push({
       code: "MAX_GT_OPTION_COUNT",
       message: "max_quantity cannot be greater than the number of valid options."
@@ -136,9 +148,9 @@ export function validateModifySetDraft(input: ModifySetCardModel): ModifySetDraf
 
   return {
     setErrors,
-    rowErrors,
-    validRowCount,
-    hasError: setErrors.length > 0 || rowErrors.length > 0
+    rowErrors: rowValidation.rowErrors,
+    validRowCount: rowValidation.validRowCount,
+    hasError: setErrors.length > 0 || rowValidation.rowErrors.length > 0
   };
 }
 

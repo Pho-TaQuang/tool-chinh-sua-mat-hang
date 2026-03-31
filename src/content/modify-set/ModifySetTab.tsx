@@ -1,10 +1,9 @@
 import React from "react";
 import "./styles.css";
 import { Plus } from "../ui/icons";
-import { parseClipboardToPreview } from "./parser";
 import { ModifySetCard } from "./components/ModifySetCard";
+import { ModifySetPasteOverflowModal } from "./components/ModifySetPasteOverflowModal";
 import { ModifySetPickerModal } from "./components/ModifySetPickerModal";
-import { ModifySetPreviewModal } from "./components/ModifySetPreviewModal";
 import { ModifySetToolbar } from "./components/ModifySetToolbar";
 import { useModifySetCatalog } from "./hooks/useModifySetCatalog";
 import { useModifySetEditor } from "./hooks/useModifySetEditor";
@@ -17,7 +16,6 @@ export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog 
   const submission = useModifySetSubmission({
     apiClient,
     sets: editor.state.sets,
-    pendingPreview: editor.state.pendingPreview,
     onStatusText,
     onShowToast,
     onDebugLog,
@@ -29,12 +27,6 @@ export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog 
 
   const allPageSelected =
     catalog.items.length > 0 && catalog.items.every((item) => editor.state.pickerSelectedItemsMap.has(item.client_id));
-
-  const handlePreviewButton = () => {
-    if (!editor.restoreLastPreview()) {
-      onStatusText("No preview data yet.");
-    }
-  };
 
   const handleTogglePickerItem = (item: { client_id: string; name: string }) => {
     const next = new Map(editor.state.pickerSelectedItemsMap);
@@ -75,8 +67,26 @@ export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog 
     });
   };
 
+  const handleTabHotkeys = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (key === "z" && !event.shiftKey) {
+      event.preventDefault();
+      editor.undo();
+      return;
+    }
+
+    if (key === "y" || (key === "z" && event.shiftKey)) {
+      event.preventDefault();
+      editor.redo();
+    }
+  };
+
   return (
-    <div className="spx-modset-layout">
+    <div className="spx-modset-layout" onKeyDownCapture={handleTabHotkeys}>
       <div className="spx-modset-grid">
         <div className="spx-modset-sets-panel">
           <ModifySetToolbar
@@ -85,7 +95,6 @@ export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog 
             total={editor.progress.total}
             percent={editor.progress.percent}
             processingSet={editor.progress.processingSet}
-            onPreviewImport={handlePreviewButton}
             onCreateAndMap={() => void submission.createAndMap()}
           />
 
@@ -134,8 +143,18 @@ export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog 
                 })
               }
               onDeleteSelectedRows={() => editor.deleteSelectedRows(set.localId)}
+              onDeleteRow={(rowIndex) => editor.deleteRow(set.localId, rowIndex)}
               onEnsureTrailingRows={() => editor.ensureTrailingForSet(set.localId)}
-              onPasteText={(rowIndex, text) => editor.openPreview(set.localId, rowIndex, parseClipboardToPreview(text))}
+              onPasteText={(rowIndex, colIndex, text) => {
+                const result = editor.requestPaste(set.localId, rowIndex, colIndex, text);
+                if (result === "empty") {
+                  onStatusText("Clipboard data is empty.");
+                  return;
+                }
+                if (result === "overflow") {
+                  onStatusText("Pasted data has overflow columns. Confirm to continue or cancel.");
+                }
+              }}
               onFillStart={(row, col, value) => handleFillStart(set.localId, row, col, value)}
               onFillHover={(row, col) => editor.applyFillHover(set.localId, row, col)}
               onDefaultSelectedChange={(rowIndex, checked) =>
@@ -198,13 +217,10 @@ export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog 
         onConfirm={editor.confirmMappingPicker}
       />
 
-      <ModifySetPreviewModal
-        pendingPreview={editor.state.pendingPreview}
-        onClose={editor.closePreview}
-        onImport={() => {
-          editor.importPendingPreview();
-          onStatusText("Paste preview imported.");
-        }}
+      <ModifySetPasteOverflowModal
+        pendingPasteOverflow={editor.state.pendingPasteOverflow}
+        onCancel={editor.cancelOverflowPaste}
+        onContinue={editor.confirmOverflowPaste}
       />
     </div>
   );

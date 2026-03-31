@@ -216,6 +216,7 @@ input[type="number"].spx-modset-input {
 
 .spx-modset-main-cell {
   min-width: 120px;
+  position: relative;
 }
 
 .spx-modset-cell-input-wrap {
@@ -230,6 +231,10 @@ input[type="number"].spx-modset-input {
   font-size: 12px;
 }
 
+.spx-modset-cell-input-select {
+  caret-color: transparent;
+}
+
 .spx-modset-cell-error {
   border-color: #ee5d50;
 }
@@ -238,6 +243,10 @@ input[type="number"].spx-modset-input {
   color: #ee5d50;
   font-size: 11px;
   margin-top: 3px;
+}
+.spx-modset-cell-input-editing {
+  border-color: #5f8af7;
+  box-shadow: 0 0 0 2px rgba(95, 138, 247, 0.18);
 }
 
 .spx-modset-fill-handle {
@@ -339,6 +348,10 @@ input[type="number"].spx-modset-input {
   gap: 12px;
 }
 
+.spx-modset-preview-modal .spx-modset-sheet-wrap {
+  max-height: 360px;
+}
+
 .spx-modset-preview-table-container {
   display: flex;
   flex-direction: column;
@@ -408,3 +421,37 @@ input[type="number"].spx-modset-input {
     grid-template-columns: 1fr;
   }
 }
+
+
+
+
+
+.spx-modset-cell-edit-hint {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  transform: translateY(-100%);
+  z-index: 10;
+  background: #ffffff;
+  color: #ee5d50;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 4px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+}
+
+.spx-modset-row-action {
+  text-align: center;
+}
+
+.spx-modset-row-delete-btn {
+  margin: 0 auto;
+}
+
+
+
+

@@ -17,7 +17,7 @@ function getBaseSet(overrides?: Partial<ModifySetCardModel>): ModifySetCardModel
         rowId: "row-1",
         name: "Option A",
         priceInput: "1000",
-        costInput: "",
+        costInput: "500",
         defaultSelected: false
       },
       {
@@ -108,41 +108,127 @@ describe("modifySetEditorReducer", () => {
     });
   });
 
-  it("imports preview rows starting at the requested row index", () => {
+  it("applies non-overflow paste directly to the current set", () => {
     const initial = createInitialModifySetEditorState();
     const set = {
       ...getBaseSet({ localId: initial.sets[0]!.localId }),
-      rows: [createRow(), createRow(), createRow()]
+      rows: [
+        {
+          rowId: "r1",
+          name: "Keep Name",
+          priceInput: "1000",
+          costInput: "700",
+          defaultSelected: false
+        }
+      ]
     };
 
-    const opened = modifySetEditorReducer(
+    const next = modifySetEditorReducer(
       {
         ...initial,
         sets: [set]
       },
       {
-        type: "open_preview",
-        preview: {
-          setLocalId: set.localId,
-          startRow: 1,
-          preview: {
-            rows: [
-              { lineNumber: 1, name: "A", priceInput: "1000", costInput: "", errors: [] },
-              { lineNumber: 2, name: "B", priceInput: "2000", costInput: "300", errors: [] }
-            ],
-            totalRows: 2,
-            validRows: 2,
-            invalidRows: 0
-          }
-        }
+        type: "request_paste",
+        setLocalId: set.localId,
+        startRow: 0,
+        startCol: 1,
+        clipboardGrid: [["2500"]]
       }
     );
 
-    const imported = modifySetEditorReducer(opened, { type: "import_preview" });
+    expect(next.pendingPasteOverflow).toBeNull();
+    expect(next.sets[0]?.rows[0]).toMatchObject({
+      name: "Keep Name",
+      priceInput: "2500",
+      costInput: "700"
+    });
+    expect(next.activeCell).toMatchObject({ setLocalId: set.localId, row: 0, col: 1 });
+  });
 
-    expect(imported.sets[0]?.rows[1]).toMatchObject({ name: "A", priceInput: "1000" });
-    expect(imported.sets[0]?.rows[2]).toMatchObject({ name: "B", priceInput: "2000", costInput: "300" });
-    expect(imported.pendingPreview).toBeNull();
+  it("stores pending overflow paste until user confirms", () => {
+    const initial = createInitialModifySetEditorState();
+    const set = {
+      ...getBaseSet({ localId: initial.sets[0]!.localId }),
+      rows: [
+        {
+          rowId: "r1",
+          name: "Keep",
+          priceInput: "1000",
+          costInput: "200",
+          defaultSelected: false
+        }
+      ]
+    };
+
+    const pending = modifySetEditorReducer(
+      {
+        ...initial,
+        sets: [set]
+      },
+      {
+        type: "request_paste",
+        setLocalId: set.localId,
+        startRow: 0,
+        startCol: 1,
+        clipboardGrid: [["9000", "300", "EXTRA"]]
+      }
+    );
+
+    expect(pending.pendingPasteOverflow).not.toBeNull();
+    expect(pending.sets[0]?.rows[0]).toMatchObject({
+      name: "Keep",
+      priceInput: "1000",
+      costInput: "200"
+    });
+
+    const confirmed = modifySetEditorReducer(pending, { type: "confirm_overflow_paste" });
+    expect(confirmed.pendingPasteOverflow).toBeNull();
+    expect(confirmed.sets[0]?.rows[0]).toMatchObject({
+      name: "Keep",
+      priceInput: "9000",
+      costInput: "300"
+    });
+  });
+
+  it("cancels pending overflow paste without changing data", () => {
+    const initial = createInitialModifySetEditorState();
+    const set = {
+      ...getBaseSet({ localId: initial.sets[0]!.localId }),
+      rows: [
+        {
+          rowId: "r1",
+          name: "Keep",
+          priceInput: "1000",
+          costInput: "200",
+          defaultSelected: false
+        },
+        createRow()
+      ]
+    };
+
+    const pending = modifySetEditorReducer(
+      {
+        ...initial,
+        sets: [set]
+      },
+      {
+        type: "request_paste",
+        setLocalId: set.localId,
+        startRow: 0,
+        startCol: 1,
+        clipboardGrid: [["9000", "300", "EXTRA"]]
+      }
+    );
+
+    const cancelled = modifySetEditorReducer(pending, { type: "cancel_overflow_paste" });
+
+    expect(cancelled.pendingPasteOverflow).toBeNull();
+    expect(cancelled.sets[0]?.rows[0]).toMatchObject({
+      name: "Keep",
+      priceInput: "1000",
+      costInput: "200"
+    });
   });
 
   it("confirming picker selection recomputes status based on validation and existing client id", () => {

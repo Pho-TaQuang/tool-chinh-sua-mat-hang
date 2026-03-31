@@ -1,92 +1,62 @@
-import type { ClipboardPreview, ParsedClipboardRow } from "./types";
+import { createRow } from "./defaults";
+import { fieldForMainColumn } from "./grid";
+import type { MainCol, ModifySetRowModel } from "./types";
 
-function normalizeNumericToken(input: string): string {
-  return input.replace(/,/g, "").trim();
-}
-
-function isNumericToken(input: string): boolean {
-  if (!input.trim()) {
-    return false;
-  }
-
-  const normalized = normalizeNumericToken(input);
-  return /^-?\d+(?:\.\d+)?$/.test(normalized);
-}
-
-export function parseClipboardToPreview(raw: string): ClipboardPreview {
+export function parseClipboardGrid(raw: string): string[][] {
   const lines = raw
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .split("\n");
 
-  const rows: ParsedClipboardRow[] = [];
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const line = lines[lineIndex] ?? "";
+  const rows: string[][] = [];
+  for (const line of lines) {
     if (!line.trim()) {
       continue;
     }
 
-    const cells = line.split("\t").map((cell) => cell.trim());
-    const nonEmptyCells = cells
-      .map((value, index) => ({ value, index }))
-      .filter((entry) => entry.value.length > 0);
+    rows.push(line.split("\t").map((cell) => cell.trim()));
+  }
 
-    const errors: string[] = [];
+  return rows;
+}
 
-    if (nonEmptyCells.length === 0) {
-      rows.push({
-        lineNumber: lineIndex + 1,
-        name: "",
-        priceInput: "",
-        costInput: "",
-        errors: ["Empty row or no valid data."]
-      });
-      continue;
+export function hasClipboardOverflow(input: { startCol: MainCol; clipboardGrid: string[][] }): boolean {
+  const availableColumns = 3 - input.startCol;
+  return input.clipboardGrid.some((row) => row.length > availableColumns);
+}
+
+export function applyClipboardGridToRows(input: {
+  rows: ModifySetRowModel[];
+  startRow: number;
+  startCol: MainCol;
+  clipboardGrid: string[][];
+}): ModifySetRowModel[] {
+  const nextRows = [...input.rows];
+
+  for (let rowOffset = 0; rowOffset < input.clipboardGrid.length; rowOffset += 1) {
+    const targetRowIndex = input.startRow + rowOffset;
+    while (nextRows.length <= targetRowIndex) {
+      nextRows.push(createRow());
     }
 
-    const nameCell = nonEmptyCells.find((entry) => !isNumericToken(entry.value)) ?? null;
-    const name = nameCell?.value ?? "";
-    if (!name) {
-      errors.push("Option name is required.");
-    }
+    const current = nextRows[targetRowIndex] ?? createRow();
+    const clipboardRow = input.clipboardGrid[rowOffset] ?? [];
+    const nextRow: ModifySetRowModel = {
+      ...current
+    };
 
-    const numericCandidates: string[] = [];
-    for (const cell of nonEmptyCells) {
-      if (nameCell && cell.index === nameCell.index) {
+    for (let cellOffset = 0; cellOffset < clipboardRow.length; cellOffset += 1) {
+      const targetCol = input.startCol + cellOffset;
+      if (targetCol > 2) {
         continue;
       }
 
-      if (isNumericToken(cell.value)) {
-        numericCandidates.push(normalizeNumericToken(cell.value));
-      } else {
-        errors.push(`Value is not a valid number: "${cell.value}".`);
-      }
+      const field = fieldForMainColumn(targetCol as MainCol);
+      nextRow[field] = clipboardRow[cellOffset] ?? "";
     }
 
-    const priceInput = numericCandidates[0] ?? "";
-    const costInput = numericCandidates[1] ?? "";
-
-    rows.push({
-      lineNumber: lineIndex + 1,
-      name,
-      priceInput,
-      costInput,
-      errors
-    });
+    nextRows[targetRowIndex] = nextRow;
   }
 
-  let validRows = 0;
-  for (const row of rows) {
-    if (row.errors.length === 0 && row.name.trim().length > 0) {
-      validRows += 1;
-    }
-  }
-
-  return {
-    rows,
-    totalRows: rows.length,
-    validRows,
-    invalidRows: Math.max(0, rows.length - validRows)
-  };
+  return nextRows;
 }

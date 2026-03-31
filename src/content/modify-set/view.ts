@@ -5,6 +5,22 @@ import type {
   ModifySetStatus
 } from "./types";
 
+type CellErrorField = "name" | "priceInput" | "costInput";
+
+function cellErrorFieldFromCode(error: ModifySetRowValidationError): CellErrorField {
+  if (error.code === "ROW_NAME_REQUIRED") {
+    return "name";
+  }
+  if (error.code === "ROW_PRICE_REQUIRED" || error.code === "ROW_PRICE_INVALID") {
+    return "priceInput";
+  }
+  return "costInput";
+}
+
+export function buildCellErrorKey(rowId: string, field: CellErrorField): string {
+  return `${rowId}:${field}`;
+}
+
 export function statusLabel(status: ModifySetStatus): string {
   if (status === "draft") return "Draft";
   if (status === "validated") return "Validated";
@@ -44,16 +60,18 @@ export function getModifySetProgress(sets: ModifySetCardModel[]): {
   };
 }
 
-export function buildRowErrorMap(rowErrors: ModifySetRowValidationError[]): Map<string, string[]> {
-  const rowErrorMap = new Map<string, string[]>();
+export function buildCellErrorMap(rowErrors: ModifySetRowValidationError[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
 
   for (const rowError of rowErrors) {
-    const messages = rowErrorMap.get(rowError.rowId) ?? [];
-    messages.push(rowError.message);
-    rowErrorMap.set(rowError.rowId, messages);
+    const field = cellErrorFieldFromCode(rowError);
+    const key = buildCellErrorKey(rowError.rowId, field);
+    const current = map.get(key) ?? [];
+    current.push(rowError.message);
+    map.set(key, current);
   }
 
-  return rowErrorMap;
+  return map;
 }
 
 export function listSelectedItems(map: Map<string, ModifySetLinkedItem>): ModifySetLinkedItem[] {

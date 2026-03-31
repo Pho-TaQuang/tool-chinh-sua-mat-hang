@@ -1,39 +1,61 @@
 import React from "react";
+import { Trash } from "../../ui/icons";
 import { fieldForMainColumn, getNextCellPosition } from "../grid";
-import type {
-  ActiveCell,
-  FillState,
-  MainCol,
-  ModifySetCardModel
-} from "../types";
+import { applyPriceOneShotSuffix } from "../price-input";
+import { buildCellErrorKey } from "../view";
+import type { ActiveCell, FillState, MainCol, ModifySetRowModel } from "../types";
 
 interface ModifySetSheetProps {
-  set: ModifySetCardModel;
+  sheetId: string;
+  setLocalId: string;
+  rows: ModifySetRowModel[];
   selectedRowIds: string[];
-  rowErrorMap: Map<string, string[]>;
+  cellErrorMap: Map<string, string[]>;
   activeCell: ActiveCell | null;
   fillState: FillState | null;
   onSelectRow: (rowIndex: number, shiftKey: boolean) => void;
   onCellFocus: (row: number, col: MainCol) => void;
   onCellChange: (row: number, col: MainCol, value: string) => void;
   onDeleteSelectedRows: () => void;
+  onDeleteRow: (rowIndex: number) => void;
   onEnsureTrailingRows: () => void;
-  onPasteText: (row: number, text: string) => void;
+  onPasteText: (row: number, col: MainCol, text: string) => void;
   onFillStart: (row: number, col: MainCol, value: string) => void;
   onFillHover: (row: number, col: MainCol) => void;
   onDefaultSelectedChange: (row: number, checked: boolean) => void;
 }
 
+interface EditingCell {
+  row: number;
+  col: MainCol;
+}
+
+interface EditHint {
+  row: number;
+  col: MainCol;
+}
+
+function isSameEditingCell(current: EditingCell | null, row: number, col: MainCol): boolean {
+  return Boolean(current && current.row === row && current.col === col);
+}
+
+function isPrintableKey(event: React.KeyboardEvent<HTMLInputElement>): boolean {
+  return event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+}
+
 export function ModifySetSheet({
-  set,
+  sheetId,
+  setLocalId,
+  rows,
   selectedRowIds,
-  rowErrorMap,
+  cellErrorMap,
   activeCell,
   fillState,
   onSelectRow,
   onCellFocus,
   onCellChange,
   onDeleteSelectedRows,
+  onDeleteRow,
   onEnsureTrailingRows,
   onPasteText,
   onFillStart,
@@ -41,13 +63,66 @@ export function ModifySetSheet({
   onDefaultSelectedChange
 }: ModifySetSheetProps): React.JSX.Element {
   const selectedSet = new Set(selectedRowIds);
+  const [editingCell, setEditingCell] = React.useState<EditingCell | null>(null);
+  const [editHint, setEditHint] = React.useState<EditHint | null>(null);
+  const hintTimerRef = React.useRef<number | null>(null);
+  const pendingDoubleClickCaretRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (hintTimerRef.current !== null) {
+        window.clearTimeout(hintTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showDoubleClickHint = (row: number, col: MainCol) => {
+    setEditHint({ row, col });
+
+    if (hintTimerRef.current !== null) {
+      window.clearTimeout(hintTimerRef.current);
+    }
+    hintTimerRef.current = window.setTimeout(() => {
+      setEditHint(null);
+      hintTimerRef.current = null;
+    }, 1200);
+  };
 
   const focusCell = (row: number, col: MainCol) => {
+    const boundedRow = Math.max(0, row);
+
     requestAnimationFrame(() => {
-      const selector = `input[data-set-id="${set.localId}"][data-row="${row}"][data-col="${col}"]`;
+      const selector = `input[data-sheet-id="${sheetId}"][data-row="${boundedRow}"][data-col="${col}"]`;
       const cell = document.querySelector<HTMLInputElement>(selector);
-      cell?.focus();
-      cell?.select();
+      if (!cell) {
+        return;
+      }
+      cell.focus();
+      cell.select();
+      setEditingCell(null);
+    });
+  };
+
+  const enterEditMode = (
+    row: number,
+    col: MainCol,
+    input: HTMLInputElement,
+    options?: { caretAtEnd?: boolean; explicitCaret?: number }
+  ) => {
+    setEditHint(null);
+    setEditingCell({ row, col });
+    requestAnimationFrame(() => {
+      if (document.activeElement !== input) {
+        input.focus();
+      }
+      const explicitCaret = options?.explicitCaret;
+      const caret =
+        typeof explicitCaret === "number"
+          ? explicitCaret
+          : options?.caretAtEnd
+            ? input.value.length
+            : input.selectionEnd ?? input.value.length;
+      input.setSelectionRange(caret, caret);
     });
   };
 
@@ -61,22 +136,30 @@ export function ModifySetSheet({
             <th style={{ width: 140 }}>Price</th>
             <th style={{ width: 140 }}>Cost</th>
             <th style={{ width: 70 }}>Default</th>
+            <th style={{ width: 56 }}>Delete</th>
           </tr>
         </thead>
         <tbody>
-          {set.rows.map((row, rowIndex) => {
+          {rows.map((row, rowIndex) => {
             const selected = selectedSet.has(row.rowId);
-            const rowErrors = rowErrorMap.get(row.rowId) ?? [];
 
             return (
               <tr key={row.rowId} className={selected ? "spx-modset-sheet-row-selected" : ""}>
-                <td className="spx-modset-row-index" onClick={(event) => onSelectRow(rowIndex, event.shiftKey)}>
+                <td
+                  className="spx-modset-row-index"
+                  onClick={(event) => {
+                    onSelectRow(rowIndex, event.shiftKey);
+                  }}
+                >
                   {rowIndex + 1}
                 </td>
                 {[0, 1, 2].map((col) => {
                   const colIndex = col as MainCol;
                   const field = fieldForMainColumn(colIndex);
                   const value = row[field];
+                  const isEditing = isSameEditingCell(editingCell, rowIndex, colIndex);
+                  const showCellHint = editHint?.row === rowIndex && editHint.col === colIndex;
+                  const cellErrors = cellErrorMap.get(buildCellErrorKey(row.rowId, field)) ?? [];
 
                   return (
                     <td
@@ -89,30 +172,134 @@ export function ModifySetSheet({
                         onFillHover(rowIndex, colIndex);
                       }}
                     >
+                      {showCellHint ? <div className="spx-modset-cell-edit-hint">Double click to edit</div> : null}
                       <div className="spx-modset-cell-input-wrap">
                         <input
-                          className={`spx-input-text spx-modset-cell-input ${rowErrors.length > 0 ? "spx-modset-cell-error" : ""}`}
+                          className={`spx-input-text spx-modset-cell-input ${
+                            isEditing ? "spx-modset-cell-input-editing" : "spx-modset-cell-input-select"
+                          } ${cellErrors.length > 0 ? "spx-modset-cell-error" : ""}`}
                           value={value}
-                          data-set-id={set.localId}
+                          readOnly={!isEditing}
+                          data-sheet-id={sheetId}
+                          data-set-id={setLocalId}
                           data-row={rowIndex}
                           data-col={colIndex}
-                          onFocus={() => onCellFocus(rowIndex, colIndex)}
-                          onChange={(event) => onCellChange(rowIndex, colIndex, event.target.value)}
+                          onFocus={() => {
+                            onCellFocus(rowIndex, colIndex);
+                          }}
+                          onMouseDown={(event) => {
+                            if (isEditing) {
+                              return;
+                            }
+
+                            if (event.detail === 2) {
+                              pendingDoubleClickCaretRef.current = event.currentTarget.selectionStart;
+                              event.preventDefault();
+                              return;
+                            }
+
+                            pendingDoubleClickCaretRef.current = null;
+                          }}
+                          onDoubleClick={(event) => {
+                            if (isEditing) {
+                              return;
+                            }
+
+                            event.preventDefault();
+                            const explicitCaret =
+                              pendingDoubleClickCaretRef.current ?? event.currentTarget.selectionStart ?? 0;
+                            pendingDoubleClickCaretRef.current = null;
+                            setEditHint(null);
+                            setEditingCell({ row: rowIndex, col: colIndex });
+                            requestAnimationFrame(() => {
+                              if (document.activeElement === event.currentTarget) {
+                                event.currentTarget.setSelectionRange(explicitCaret, explicitCaret);
+                              }
+                            });
+                          }}
+                          onBlur={() => {
+                            if (isEditing) {
+                              setEditingCell(null);
+                            }
+                          }}
+                          onChange={(event) => {
+                            if (colIndex !== 1) {
+                              onCellChange(rowIndex, colIndex, event.target.value);
+                              return;
+                            }
+
+                            const nativeEvent = event.nativeEvent as InputEvent;
+                            const transformed = applyPriceOneShotSuffix({
+                              previousValue: value,
+                              rawValue: event.target.value,
+                              inputType: nativeEvent.inputType,
+                              inputData: nativeEvent.data
+                            });
+
+                            onCellChange(rowIndex, colIndex, transformed.value);
+                            if (transformed.applied && transformed.caret !== null) {
+                              requestAnimationFrame(() => {
+                                if (document.activeElement === event.currentTarget) {
+                                  event.currentTarget.setSelectionRange(transformed.caret, transformed.caret);
+                                }
+                              });
+                            }
+                          }}
                           onKeyDown={(event) => {
-                            if (event.key === "Delete" && selectedRowIds.length > 0) {
+                            if (event.key === "Escape" && isEditing) {
+                              event.preventDefault();
+                              setEditingCell(null);
+                              requestAnimationFrame(() => {
+                                event.currentTarget.select();
+                              });
+                              return;
+                            }
+
+                            if (!isEditing && event.key === "Delete" && selectedRowIds.length > 0) {
                               event.preventDefault();
                               onDeleteSelectedRows();
                               return;
                             }
 
+                            if (!isEditing && isPrintableKey(event)) {
+                              if (!value.trim()) {
+                                event.preventDefault();
+
+                                if (colIndex === 1) {
+                                  const transformed = applyPriceOneShotSuffix({
+                                    previousValue: value,
+                                    rawValue: event.key,
+                                    inputType: "insertText",
+                                    inputData: event.key
+                                  });
+                                  onCellChange(rowIndex, colIndex, transformed.value);
+                                  enterEditMode(rowIndex, colIndex, event.currentTarget, {
+                                    explicitCaret: transformed.applied ? transformed.caret ?? undefined : undefined,
+                                    caretAtEnd: !transformed.applied
+                                  });
+                                } else {
+                                  onCellChange(rowIndex, colIndex, event.key);
+                                  enterEditMode(rowIndex, colIndex, event.currentTarget, { caretAtEnd: true });
+                                }
+                              } else {
+                                event.preventDefault();
+                                showDoubleClickHint(rowIndex, colIndex);
+                              }
+                              return;
+                            }
+
                             const navigationKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] as const;
                             if (navigationKeys.includes(event.key as (typeof navigationKeys)[number])) {
+                              if (isEditing) {
+                                return;
+                              }
+
                               event.preventDefault();
                               const next = getNextCellPosition({
                                 key: event.key as (typeof navigationKeys)[number],
                                 rowIndex,
                                 colIndex,
-                                rowCount: set.rows.length
+                                rowCount: rows.length
                               });
                               onEnsureTrailingRows();
                               focusCell(next.row, next.col);
@@ -124,11 +311,15 @@ export function ModifySetSheet({
                             }
 
                             event.preventDefault();
+                            if (isEditing) {
+                              setEditingCell(null);
+                            }
+
                             const next = getNextCellPosition({
                               key: event.key,
                               rowIndex,
                               colIndex,
-                              rowCount: set.rows.length,
+                              rowCount: rows.length,
                               shiftKey: event.shiftKey
                             });
                             onEnsureTrailingRows();
@@ -141,11 +332,11 @@ export function ModifySetSheet({
                             }
 
                             event.preventDefault();
-                            onPasteText(rowIndex, text);
+                            onPasteText(rowIndex, colIndex, text);
                           }}
                         />
                         {activeCell &&
-                        activeCell.setLocalId === set.localId &&
+                        activeCell.setLocalId === setLocalId &&
                         activeCell.row === rowIndex &&
                         activeCell.col === colIndex ? (
                           <button
@@ -160,7 +351,7 @@ export function ModifySetSheet({
                           />
                         ) : null}
                       </div>
-                      {rowErrors.length > 0 ? <div className="spx-modset-row-error-inline">{rowErrors.join(" ")}</div> : null}
+                      {cellErrors.length > 0 ? <div className="spx-modset-row-error-inline">{cellErrors.join(" ")}</div> : null}
                     </td>
                   );
                 })}
@@ -170,6 +361,20 @@ export function ModifySetSheet({
                     checked={row.defaultSelected}
                     onChange={(event) => onDefaultSelectedChange(rowIndex, event.target.checked)}
                   />
+                </td>
+                <td className="spx-modset-row-action">
+                  <button
+                    type="button"
+                    className="spx-icon-btn spx-danger spx-modset-row-delete-btn"
+                    onClick={() => {
+                      setEditHint(null);
+                      setEditingCell(null);
+                      onDeleteRow(rowIndex);
+                    }}
+                    title="Delete row"
+                  >
+                    <Trash />
+                  </button>
                 </td>
               </tr>
             );

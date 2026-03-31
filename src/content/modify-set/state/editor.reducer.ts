@@ -1,12 +1,13 @@
 import { applyFillRange } from "../grid";
+import { applyClipboardGridToRows, hasClipboardOverflow } from "../parser";
 import { createEmptySet, createRow, ensureTrailingRows } from "../defaults";
 import type {
   ActiveCell,
   FillState,
+  MainCol,
   ModifySetCardModel,
   ModifySetLinkedItem,
-  ModifySetRowModel,
-  PendingPreview
+  PendingPasteOverflow
 } from "../types";
 import { validateModifySetDraft } from "../validator";
 
@@ -15,31 +16,43 @@ export interface ModifySetEditorState {
   selectedRowsBySetId: Record<string, string[]>;
   rowAnchorsBySetId: Record<string, number>;
   fillState: FillState | null;
-  pendingPreview: PendingPreview | null;
-  lastPreview: PendingPreview | null;
+  pendingPasteOverflow: PendingPasteOverflow | null;
   activeCell: ActiveCell | null;
   pickerTargetSetId: string | null;
   pickerSelectedItemsMap: Map<string, ModifySetLinkedItem>;
   isSubmitting: boolean;
 }
 
+export interface ModifySetEditorHistorySnapshot {
+  sets: ModifySetCardModel[];
+  selectedRowsBySetId: Record<string, string[]>;
+  rowAnchorsBySetId: Record<string, number>;
+  activeCell: ActiveCell | null;
+  pendingPasteOverflow: PendingPasteOverflow | null;
+}
+
 export type ModifySetEditorAction =
   | { type: "commit_set"; localId: string; nextSet: ModifySetCardModel; userEdit: boolean }
   | { type: "replace_sets"; nextSets: ModifySetCardModel[] }
+  | { type: "restore_history"; snapshot: ModifySetEditorHistorySnapshot }
   | { type: "set_selected_rows"; localId: string; rowIds: string[]; anchor: number }
   | { type: "clear_selected_rows"; localId: string }
   | { type: "delete_selected_rows"; localId: string }
   | { type: "set_active_cell"; activeCell: ActiveCell | null }
   | { type: "set_fill_state"; fillState: FillState | null }
   | { type: "apply_fill"; localId: string; targetRowIndex: number }
-  | { type: "open_preview"; preview: PendingPreview }
-  | { type: "close_preview" }
-  | { type: "import_preview" }
+  | { type: "request_paste"; setLocalId: string; startRow: number; startCol: MainCol; clipboardGrid: string[][] }
+  | { type: "confirm_overflow_paste" }
+  | { type: "cancel_overflow_paste" }
   | { type: "open_picker"; localId: string; items: ModifySetLinkedItem[] }
   | { type: "close_picker" }
   | { type: "set_picker_selection_map"; selectionMap: Map<string, ModifySetLinkedItem> }
   | { type: "confirm_picker" }
-  | { type: "patch_set_status"; localId: string; update: Partial<Pick<ModifySetCardModel, "status" | "apiClientId" | "createError" | "mappingError">> }
+  | {
+      type: "patch_set_status";
+      localId: string;
+      update: Partial<Pick<ModifySetCardModel, "status" | "apiClientId" | "createError" | "mappingError">>;
+    }
   | { type: "set_submitting"; isSubmitting: boolean }
   | { type: "add_set" }
   | { type: "delete_set"; localId: string };
@@ -100,14 +113,49 @@ function clearPerSetState(state: ModifySetEditorState, localId: string): Pick<Mo
   };
 }
 
+function applyPasteDirect(
+  state: ModifySetEditorState,
+  input: { setLocalId: string; startRow: number; startCol: MainCol; clipboardGrid: string[][] }
+): ModifySetEditorState {
+  const set = state.sets.find((entry) => entry.localId === input.setLocalId);
+  if (!set) {
+    return state;
+  }
+
+  const nextSets = updateSetById(
+    state.sets,
+    input.setLocalId,
+    (current) => ({
+      ...current,
+      rows: applyClipboardGridToRows({
+        rows: current.rows,
+        startRow: input.startRow,
+        startCol: input.startCol,
+        clipboardGrid: input.clipboardGrid
+      })
+    }),
+    true
+  );
+
+  return {
+    ...state,
+    sets: nextSets,
+    pendingPasteOverflow: null,
+    activeCell: {
+      setLocalId: input.setLocalId,
+      row: input.startRow,
+      col: input.startCol
+    }
+  };
+}
+
 export function createInitialModifySetEditorState(): ModifySetEditorState {
   return {
     sets: [createEmptySet(0)],
     selectedRowsBySetId: {},
     rowAnchorsBySetId: {},
     fillState: null,
-    pendingPreview: null,
-    lastPreview: null,
+    pendingPasteOverflow: null,
     activeCell: null,
     pickerTargetSetId: null,
     pickerSelectedItemsMap: new Map(),
@@ -165,6 +213,17 @@ export function modifySetEditorReducer(
       return {
         ...state,
         sets: action.nextSets
+      };
+
+    case "restore_history":
+      return {
+        ...state,
+        sets: action.snapshot.sets,
+        selectedRowsBySetId: action.snapshot.selectedRowsBySetId,
+        rowAnchorsBySetId: action.snapshot.rowAnchorsBySetId,
+        activeCell: action.snapshot.activeCell,
+        pendingPasteOverflow: action.snapshot.pendingPasteOverflow,
+        fillState: null
       };
 
     case "set_selected_rows":
@@ -245,62 +304,54 @@ export function modifySetEditorReducer(
       };
     }
 
-    case "open_preview":
-      return {
-        ...state,
-        pendingPreview: action.preview,
-        lastPreview: action.preview
-      };
-
-    case "close_preview":
-      return {
-        ...state,
-        pendingPreview: null
-      };
-
-    case "import_preview": {
-      const preview = state.pendingPreview;
-      if (!preview) {
+    case "request_paste": {
+      if (action.clipboardGrid.length === 0) {
         return state;
       }
 
+      const hasOverflow = hasClipboardOverflow({
+        startCol: action.startCol,
+        clipboardGrid: action.clipboardGrid
+      });
+
+      if (hasOverflow) {
+        return {
+          ...state,
+          pendingPasteOverflow: {
+            setLocalId: action.setLocalId,
+            startRow: action.startRow,
+            startCol: action.startCol,
+            clipboardGrid: action.clipboardGrid
+          },
+          activeCell: {
+            setLocalId: action.setLocalId,
+            row: action.startRow,
+            col: action.startCol
+          }
+        };
+      }
+
+      return applyPasteDirect(state, {
+        setLocalId: action.setLocalId,
+        startRow: action.startRow,
+        startCol: action.startCol,
+        clipboardGrid: action.clipboardGrid
+      });
+    }
+
+    case "confirm_overflow_paste": {
+      if (!state.pendingPasteOverflow) {
+        return state;
+      }
+
+      return applyPasteDirect(state, state.pendingPasteOverflow);
+    }
+
+    case "cancel_overflow_paste":
       return {
         ...state,
-        sets: updateSetById(
-          state.sets,
-          preview.setLocalId,
-          (set) => {
-            const rows = [...set.rows];
-            for (let index = 0; index < preview.preview.rows.length; index += 1) {
-              const parsedRow = preview.preview.rows[index];
-              if (!parsedRow) {
-                continue;
-              }
-
-              const targetRow = preview.startRow + index;
-              while (rows.length <= targetRow) {
-                rows.push(createRow());
-              }
-
-              const current = rows[targetRow] ?? createRow();
-              rows[targetRow] = {
-                ...current,
-                name: parsedRow.name,
-                priceInput: parsedRow.priceInput,
-                costInput: parsedRow.costInput
-              };
-            }
-
-            return {
-              ...set,
-              rows
-            };
-          },
-          true
-        ),
-        pendingPreview: null
+        pendingPasteOverflow: null
       };
-    }
 
     case "open_picker":
       return {
@@ -386,17 +437,14 @@ export function modifySetEditorReducer(
         nextState.pickerTargetSetId = null;
         nextState.pickerSelectedItemsMap = new Map();
       }
-      if (state.pendingPreview?.setLocalId === action.localId) {
-        nextState.pendingPreview = null;
-      }
-      if (state.lastPreview?.setLocalId === action.localId) {
-        nextState.lastPreview = null;
-      }
       if (state.activeCell?.setLocalId === action.localId) {
         nextState.activeCell = null;
       }
       if (state.fillState?.setLocalId === action.localId) {
         nextState.fillState = null;
+      }
+      if (state.pendingPasteOverflow?.setLocalId === action.localId) {
+        nextState.pendingPasteOverflow = null;
       }
 
       return nextState;

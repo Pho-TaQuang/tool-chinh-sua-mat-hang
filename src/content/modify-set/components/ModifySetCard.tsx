@@ -2,7 +2,7 @@ import React from "react";
 import { ChevronDown, ChevronUp, LinkIcon, RotateCcw, Trash } from "../../ui/icons";
 import { isFailureStatus } from "../runner";
 import type { ActiveCell, FillState, MainCol, ModifySetCardModel } from "../types";
-import { buildRowErrorMap, statusLabel, statusTone } from "../view";
+import { buildCellErrorMap, statusLabel, statusTone } from "../view";
 import { ModifySetLinkedItems } from "./ModifySetLinkedItems";
 import { ModifySetSheet } from "./ModifySetSheet";
 
@@ -24,8 +24,9 @@ interface ModifySetCardProps {
   onCellFocus: (row: number, col: MainCol) => void;
   onCellChange: (row: number, col: MainCol, value: string) => void;
   onDeleteSelectedRows: () => void;
+  onDeleteRow: (rowIndex: number) => void;
   onEnsureTrailingRows: () => void;
-  onPasteText: (rowIndex: number, text: string) => void;
+  onPasteText: (rowIndex: number, colIndex: MainCol, text: string) => void;
   onFillStart: (row: number, col: MainCol, value: string) => void;
   onFillHover: (row: number, col: MainCol) => void;
   onDefaultSelectedChange: (rowIndex: number, checked: boolean) => void;
@@ -50,6 +51,7 @@ export function ModifySetCard({
   onCellFocus,
   onCellChange,
   onDeleteSelectedRows,
+  onDeleteRow,
   onEnsureTrailingRows,
   onPasteText,
   onFillStart,
@@ -57,7 +59,7 @@ export function ModifySetCard({
   onDefaultSelectedChange,
   onRemoveLinkedItem
 }: ModifySetCardProps): React.JSX.Element {
-  const rowErrorMap = buildRowErrorMap(set.validationErrors.rowErrors);
+  const cellErrorMap = buildCellErrorMap(set.validationErrors.rowErrors);
 
   return (
     <div className="spx-card spx-modset-card">
@@ -137,15 +139,18 @@ export function ModifySetCard({
             </div>
 
             <ModifySetSheet
-              set={set}
+              sheetId={`set-${set.localId}`}
+              setLocalId={set.localId}
+              rows={set.rows}
               selectedRowIds={selectedRowIds}
-              rowErrorMap={rowErrorMap}
+              cellErrorMap={cellErrorMap}
               activeCell={activeCell}
               fillState={fillState}
               onSelectRow={onSelectRow}
               onCellFocus={onCellFocus}
               onCellChange={onCellChange}
               onDeleteSelectedRows={onDeleteSelectedRows}
+              onDeleteRow={onDeleteRow}
               onEnsureTrailingRows={onEnsureTrailingRows}
               onPasteText={onPasteText}
               onFillStart={onFillStart}

@@ -1,21 +1,59 @@
-import { useEffect, useMemo, useReducer } from "react";
-import { ensureTrailingRows } from "../defaults";
+import { useEffect, useMemo, useReducer, useRef } from "react";
+import { createRow, ensureTrailingRows } from "../defaults";
+import { hasClipboardOverflow, parseClipboardGrid } from "../parser";
 import { toggleRowSelectionRange } from "../grid";
 import type {
   ActiveCell,
-  ClipboardPreview,
   FillState,
   MainCol,
   ModifySetCardModel,
-  ModifySetLinkedItem
+  ModifySetLinkedItem,
+  PendingPasteOverflow
 } from "../types";
 import { getModifySetProgress } from "../view";
 import {
   createInitialModifySetEditorState,
   modifySetEditorReducer,
+  type ModifySetEditorHistorySnapshot,
   type ModifySetEditorState
 } from "../state/editor.reducer";
 import { getPickerTargetSet, getSelectedPickerItems } from "../state/editor.selectors";
+
+const MAX_HISTORY_DEPTH = 100;
+
+function clonePendingPasteOverflow(overflow: PendingPasteOverflow | null): PendingPasteOverflow | null {
+  if (!overflow) {
+    return null;
+  }
+
+  return {
+    setLocalId: overflow.setLocalId,
+    startRow: overflow.startRow,
+    startCol: overflow.startCol,
+    clipboardGrid: overflow.clipboardGrid.map((row) => [...row])
+  };
+}
+
+function cloneHistorySnapshot(snapshot: ModifySetEditorHistorySnapshot): ModifySetEditorHistorySnapshot {
+  return {
+    sets: snapshot.sets.map((set) => ({
+      ...set,
+      mappingItems: set.mappingItems.map((item) => ({ ...item })),
+      rows: set.rows.map((row) => ({ ...row })),
+      validationErrors: {
+        ...set.validationErrors,
+        setErrors: set.validationErrors.setErrors.map((error) => ({ ...error })),
+        rowErrors: set.validationErrors.rowErrors.map((error) => ({ ...error }))
+      }
+    })),
+    selectedRowsBySetId: Object.fromEntries(
+      Object.entries(snapshot.selectedRowsBySetId).map(([setId, rowIds]) => [setId, [...rowIds]])
+    ),
+    rowAnchorsBySetId: { ...snapshot.rowAnchorsBySetId },
+    activeCell: snapshot.activeCell ? { ...snapshot.activeCell } : null,
+    pendingPasteOverflow: clonePendingPasteOverflow(snapshot.pendingPasteOverflow)
+  };
+}
 
 export interface ModifySetEditorHandle {
   state: ModifySetEditorState;
@@ -31,13 +69,15 @@ export interface ModifySetEditorHandle {
   setActiveCell: (activeCell: ActiveCell | null) => void;
   selectRows: (localId: string, rowIndex: number, shiftKey: boolean) => void;
   deleteSelectedRows: (localId: string) => void;
+  deleteRow: (localId: string, rowIndex: number) => void;
   startFill: (fillState: FillState) => void;
   stopFill: () => void;
   applyFillHover: (localId: string, rowIndex: number, col: MainCol) => void;
-  openPreview: (setLocalId: string, startRow: number, preview: ClipboardPreview) => void;
-  restoreLastPreview: () => boolean;
-  closePreview: () => void;
-  importPendingPreview: () => void;
+  requestPaste: (setLocalId: string, startRow: number, startCol: MainCol, text: string) => "empty" | "applied" | "overflow";
+  confirmOverflowPaste: () => void;
+  cancelOverflowPaste: () => void;
+  undo: () => void;
+  redo: () => void;
   patchSetStatus: (
     localId: string,
     update: Partial<Pick<ModifySetCardModel, "status" | "apiClientId" | "createError" | "mappingError">>
@@ -50,6 +90,70 @@ export interface ModifySetEditorHandle {
 
 export function useModifySetEditor(): ModifySetEditorHandle {
   const [state, dispatch] = useReducer(modifySetEditorReducer, undefined, createInitialModifySetEditorState);
+  const historyRef = useRef<{
+    undo: ModifySetEditorHistorySnapshot[];
+    redo: ModifySetEditorHistorySnapshot[];
+  }>({ undo: [], redo: [] });
+
+  const buildHistorySnapshot = (): ModifySetEditorHistorySnapshot =>
+    cloneHistorySnapshot({
+      sets: state.sets,
+      selectedRowsBySetId: state.selectedRowsBySetId,
+      rowAnchorsBySetId: state.rowAnchorsBySetId,
+      activeCell: state.activeCell,
+      pendingPasteOverflow: state.pendingPasteOverflow
+    });
+
+  const pushUndoSnapshot = () => {
+    const snapshot = buildHistorySnapshot();
+    const history = historyRef.current;
+    history.undo.push(snapshot);
+    if (history.undo.length > MAX_HISTORY_DEPTH) {
+      history.undo.shift();
+    }
+    history.redo = [];
+  };
+
+  const undo = () => {
+    const history = historyRef.current;
+    const snapshot = history.undo.pop();
+    if (!snapshot) {
+      return;
+    }
+
+    history.redo.push(buildHistorySnapshot());
+    if (history.redo.length > MAX_HISTORY_DEPTH) {
+      history.redo.shift();
+    }
+
+    dispatch({
+      type: "restore_history",
+      snapshot: cloneHistorySnapshot(snapshot)
+    });
+  };
+
+  const redo = () => {
+    const history = historyRef.current;
+    const snapshot = history.redo.pop();
+    if (!snapshot) {
+      return;
+    }
+
+    history.undo.push(buildHistorySnapshot());
+    if (history.undo.length > MAX_HISTORY_DEPTH) {
+      history.undo.shift();
+    }
+
+    dispatch({
+      type: "restore_history",
+      snapshot: cloneHistorySnapshot(snapshot)
+    });
+  };
+
+  const clearHistory = () => {
+    historyRef.current.undo = [];
+    historyRef.current.redo = [];
+  };
 
   useEffect(() => {
     if (!state.fillState) {
@@ -72,6 +176,10 @@ export function useModifySetEditor(): ModifySetEditorHandle {
     const currentSet = state.sets.find((set) => set.localId === localId);
     if (!currentSet) {
       return;
+    }
+
+    if (userEdit) {
+      pushUndoSnapshot();
     }
 
     dispatch({
@@ -111,6 +219,11 @@ export function useModifySetEditor(): ModifySetEditorHandle {
   };
 
   const confirmMappingPicker = () => {
+    if (!state.pickerTargetSetId) {
+      return;
+    }
+
+    pushUndoSnapshot();
     dispatch({ type: "confirm_picker" });
   };
 
@@ -145,7 +258,43 @@ export function useModifySetEditor(): ModifySetEditorHandle {
   };
 
   const deleteSelectedRows = (localId: string) => {
+    const selectedRows = state.selectedRowsBySetId[localId] ?? [];
+    if (selectedRows.length === 0) {
+      return;
+    }
+
+    pushUndoSnapshot();
     dispatch({ type: "delete_selected_rows", localId });
+  };
+
+  const deleteRow = (localId: string, rowIndex: number) => {
+    const currentSet = state.sets.find((set) => set.localId === localId);
+    if (!currentSet) {
+      return;
+    }
+    if (rowIndex < 0 || rowIndex >= currentSet.rows.length) {
+      return;
+    }
+
+    pushUndoSnapshot();
+
+    const nextRows = currentSet.rows.filter((_, index) => index !== rowIndex);
+
+    dispatch({
+      type: "commit_set",
+      localId,
+      nextSet: {
+        ...currentSet,
+        rows: nextRows.length > 0 ? nextRows : [createRow()]
+      },
+      userEdit: true
+    });
+
+    dispatch({ type: "clear_selected_rows", localId });
+
+    if (state.activeCell?.setLocalId === localId) {
+      dispatch({ type: "set_active_cell", activeCell: null });
+    }
   };
 
   const startFill = (fillState: FillState) => {
@@ -164,6 +313,7 @@ export function useModifySetEditor(): ModifySetEditorHandle {
       return;
     }
 
+    pushUndoSnapshot();
     dispatch({
       type: "apply_fill",
       localId,
@@ -171,35 +321,44 @@ export function useModifySetEditor(): ModifySetEditorHandle {
     });
   };
 
-  const openPreview = (setLocalId: string, startRow: number, preview: ClipboardPreview) => {
-    dispatch({
-      type: "open_preview",
-      preview: {
-        setLocalId,
-        startRow,
-        preview
-      }
-    });
-  };
+  const requestPaste = (
+    setLocalId: string,
+    startRow: number,
+    startCol: MainCol,
+    text: string
+  ): "empty" | "applied" | "overflow" => {
+    const clipboardGrid = parseClipboardGrid(text);
+    if (clipboardGrid.length === 0) {
+      return "empty";
+    }
 
-  const restoreLastPreview = (): boolean => {
-    if (!state.lastPreview) {
-      return false;
+    const overflow = hasClipboardOverflow({ startCol, clipboardGrid });
+    if (!overflow) {
+      pushUndoSnapshot();
     }
 
     dispatch({
-      type: "open_preview",
-      preview: state.lastPreview
+      type: "request_paste",
+      setLocalId,
+      startRow,
+      startCol,
+      clipboardGrid
     });
-    return true;
+
+    return overflow ? "overflow" : "applied";
   };
 
-  const closePreview = () => {
-    dispatch({ type: "close_preview" });
+  const confirmOverflowPaste = () => {
+    if (!state.pendingPasteOverflow) {
+      return;
+    }
+
+    pushUndoSnapshot();
+    dispatch({ type: "confirm_overflow_paste" });
   };
 
-  const importPendingPreview = () => {
-    dispatch({ type: "import_preview" });
+  const cancelOverflowPaste = () => {
+    dispatch({ type: "cancel_overflow_paste" });
   };
 
   const patchSetStatus = (
@@ -214,14 +373,22 @@ export function useModifySetEditor(): ModifySetEditorHandle {
   };
 
   const replaceSets = (sets: ModifySetCardModel[]) => {
+    clearHistory();
     dispatch({ type: "replace_sets", nextSets: sets });
   };
 
   const addSet = () => {
+    pushUndoSnapshot();
     dispatch({ type: "add_set" });
   };
 
   const deleteSet = (localId: string) => {
+    const set = state.sets.find((entry) => entry.localId === localId);
+    if (!set) {
+      return;
+    }
+
+    pushUndoSnapshot();
     dispatch({ type: "delete_set", localId });
   };
 
@@ -239,13 +406,15 @@ export function useModifySetEditor(): ModifySetEditorHandle {
     setActiveCell,
     selectRows,
     deleteSelectedRows,
+    deleteRow,
     startFill,
     stopFill,
     applyFillHover,
-    openPreview,
-    restoreLastPreview,
-    closePreview,
-    importPendingPreview,
+    requestPaste,
+    confirmOverflowPaste,
+    cancelOverflowPaste,
+    undo,
+    redo,
     patchSetStatus,
     setSubmitting,
     replaceSets,
