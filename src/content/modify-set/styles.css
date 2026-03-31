@@ -339,7 +339,15 @@ input[type="number"].spx-modset-input {
   gap: 12px;
 }
 
+.spx-modset-preview-table-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
 .spx-modset-preview-table-wrap {
+  flex: 1;
   max-height: 360px;
   overflow: auto;
   scrollbar-gutter: stable;

@@ -91,8 +91,9 @@ export function ModifySetPickerModal({
         </div>
 
         <div className="spx-modset-picker-grid">
-          <div className="spx-modset-preview-table-wrap">
-            <table className="spx-table">
+          <div className="spx-modset-preview-table-container">
+            <div className="spx-modset-preview-table-wrap">
+              <table className="spx-table">
               <thead>
                 <tr>
                   <th style={{ width: 40, textAlign: "center", overflow: "visible", textOverflow: "clip" }}>
@@ -125,8 +126,9 @@ export function ModifySetPickerModal({
                 ) : null}
               </tbody>
             </table>
+            </div>
 
-            <div className="spx-pagination">
+            <div className="spx-pagination" style={{ marginTop: "auto" }}>
               <button className="spx-page-btn" onClick={onPrevPage} disabled={itemPage <= 1 || isLoadingItems}>
                 &laquo;
               </button>
