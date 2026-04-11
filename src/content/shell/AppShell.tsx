@@ -6,18 +6,47 @@ import { useShellBootstrap } from "./hooks/useShellBootstrap";
 import { useToastQueue } from "./hooks/useToastQueue";
 import { TabSwitcher } from "./components/TabSwitcher";
 import { ToastViewport } from "./components/ToastViewport";
+import {
+  createInitialShellVisibilityState,
+  isShellReopenBlocked,
+  requestShellClose,
+  requestShellOpen
+} from "./visibility";
 
 function resolveActiveTab(tabId: string) {
   return CONTENT_TOOL_TABS.find((tab) => tab.id === tabId) ?? CONTENT_TOOL_TABS[0];
 }
 
 export function AppShell(): React.JSX.Element {
-  const [isOpen, setIsOpen] = useState(false);
+  const [visibility, setVisibility] = useState(createInitialShellVisibilityState);
   const [activeTabId, setActiveTabId] = useState(DEFAULT_CONTENT_TOOL_TAB_ID);
   const { apiClient, statusText, setStatusText, logToService } = useShellBootstrap();
   const { toasts, showToast } = useToastQueue();
+  const isOpen = visibility.isOpen;
   const activeTab = resolveActiveTab(activeTabId);
   const ActiveTabComponent = activeTab.Component;
+
+  const openShell = () => {
+    const now = Date.now();
+    if (isShellReopenBlocked(visibility, now)) {
+      void logToService("debug", "Blocked launcher reopen inside guard window.", {
+        now,
+        reopenBlockedUntil: visibility.reopenBlockedUntil
+      });
+      return;
+    }
+
+    setVisibility((current) => requestShellOpen(current, now));
+  };
+
+  const closeShell = (reason: "backdrop" | "button") => {
+    const now = Date.now();
+    setVisibility((current) => requestShellClose(current, now));
+    void logToService("debug", "Shell closed.", {
+      reason,
+      now
+    });
+  };
 
   return (
     <>
@@ -25,7 +54,7 @@ export function AppShell(): React.JSX.Element {
         <button
           type="button"
           className="spx-shell-launcher"
-          onClick={() => setIsOpen(true)}
+          onClick={openShell}
           aria-label="Open Sapo Batch Tool"
         >
           S
@@ -34,7 +63,7 @@ export function AppShell(): React.JSX.Element {
 
       {isOpen ? (
         <div className="spx-shell-overlay">
-          <div className="spx-shell-backdrop" onClick={() => setIsOpen(false)} />
+          <div className="spx-shell-backdrop" onClick={() => closeShell("backdrop")} />
           <div className="spx-shell-container" role="dialog" aria-modal="true" aria-label="Sapo Batch Popup">
             <div className="spx-shell-header">
               <div className="spx-shell-header-left">
@@ -48,7 +77,7 @@ export function AppShell(): React.JSX.Element {
                 <button
                   type="button"
                   className="spx-icon-btn spx-danger"
-                  onClick={() => setIsOpen(false)}
+                  onClick={() => closeShell("button")}
                   aria-label="Close popup"
                 >
                   X
