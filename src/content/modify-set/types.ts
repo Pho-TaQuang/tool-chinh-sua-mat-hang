@@ -52,6 +52,7 @@ export interface ModifySetCardModel {
   maxQuantity: number;
   isMaxQuantityEdited: boolean;
   allowMultipleQuantity: boolean;
+  stockType?: string;
   mappingItems: ModifySetLinkedItem[];
   rows: ModifySetRowModel[];
   collapsed: boolean;

@@ -4,6 +4,7 @@ import type { ModifySetCardModel } from "../types";
 
 interface ModifySetToolbarProps {
   isSubmitting: boolean;
+  isActionDisabled?: boolean;
   completed: number;
   total: number;
   percent: number;
@@ -13,6 +14,7 @@ interface ModifySetToolbarProps {
 
 export function ModifySetToolbar({
   isSubmitting,
+  isActionDisabled = false,
   completed,
   total,
   percent,
@@ -39,7 +41,7 @@ export function ModifySetToolbar({
         </div>
       </div>
       <div className="spx-sync-item">
-        <button className="spx-big-btn spx-green" onClick={onCreateAndMap} disabled={isSubmitting}>
+        <button className="spx-big-btn spx-green" onClick={onCreateAndMap} disabled={isSubmitting || isActionDisabled}>
           <Upload /> {isSubmitting ? "Submitting..." : "Create & map"}
         </button>
       </div>

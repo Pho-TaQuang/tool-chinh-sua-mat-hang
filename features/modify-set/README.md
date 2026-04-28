@@ -2,6 +2,7 @@
 
 ## Purpose
 Draft modify sets in the content UI, validate set and option rows locally, create sets through the API, then map each created set to linked items.
+Export existing server modify sets to CSV or JSON for backup, audit, and spreadsheet review, then import those files back into editable drafts.
 
 ## Entrypoints
 - `src/content/modify-set/index.ts`: feature export surface.
@@ -16,9 +17,14 @@ Draft modify sets in the content UI, validate set and option rows locally, creat
 - User edits clear stale API state so draft data is not mixed with an older create/map result.
 - Trailing empty rows are preserved for spreadsheet-like editing.
 - `max_quantity` stays aligned with valid row count until the user explicitly edits it.
+- Server export pages through `/admin/modify_sets.json` and scans `/admin/items.json` to derive mapped item details from `items[].mod_sets`.
+- Export fails rather than downloading a partial file if the item scan fails.
+- CSV/JSON import replaces the current draft list, preserves exported `stock_type`, resets server `client_id` state, and keeps imported sets editable before a new create/map run.
 
 ## Important Dependencies
-- `src/content/site.api.client.ts` for category/item loading, modify set creation, and item mapping.
+- `src/content/site.api.client.ts` for category/item loading, modify set listing/creation, and item mapping.
+- `src/content/modify-set/export.ts` for server export pagination, item mapping enrichment, CSV/JSON formatting, and file download.
+- `src/content/modify-set/import.ts` for rebuilding editable drafts from exported CSV/JSON files.
 - `src/content/modify-set/validator.ts` for set and row rules.
 - `src/content/modify-set/normalize.ts` for payload shaping and valid-row filtering.
 - `src/content/modify-set/runner.ts` for sequential create/map execution and retry behavior.

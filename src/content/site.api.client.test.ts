@@ -37,6 +37,21 @@ describe("SiteApiClient", () => {
     );
   });
 
+  it("builds getModifySets query with name filter", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ mod_sets: [], metadata: { total: 0, page: 1, limit: 50 } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SiteApiClient(() => context);
+    await client.getModifySets(1, 50, "");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://fnb.mysapo.vn/admin/modify_sets.json?page=1&limit=50&name="
+    );
+  });
+
   it("sends createModifySet payload to POST /admin/modify_sets.json", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({ modify_set: { client_id: "set-1", mod_options: [] } })

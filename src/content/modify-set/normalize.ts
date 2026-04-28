@@ -32,7 +32,7 @@ export function buildModifySetPayload(input: ModifySetCardModel): ModifySetCreat
       min_quantity: input.minQuantity,
       mod_options: modOptions,
       name: input.name.trim(),
-      stock_type: "nottrack"
+      stock_type: input.stockType || "nottrack"
     }
   };
 }

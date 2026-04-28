@@ -24,6 +24,39 @@
   gap: 12px;
 }
 
+.spx-modset-transfer-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 16px 20px;
+}
+
+.spx-modset-transfer-main {
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spx-modset-transfer-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.spx-modset-transfer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.spx-modset-file-input {
+  display: none;
+}
+
 .spx-modset-card {
   display: flex;
   flex-direction: row;
@@ -407,6 +440,15 @@ input[type="number"].spx-modset-input {
 
   .spx-modset-card {
     flex-direction: column;
+  }
+
+  .spx-modset-transfer-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .spx-modset-transfer-actions {
+    justify-content: flex-start;
   }
 
   .spx-modset-set-fields {

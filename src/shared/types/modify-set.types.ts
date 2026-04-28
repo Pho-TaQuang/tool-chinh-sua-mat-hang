@@ -29,6 +29,7 @@ export interface ModifySetResponseOption {
   cost: number | null;
   default_selected: boolean;
   order_number: number;
+  cost_setting?: boolean;
   [key: string]: unknown;
 }
 
@@ -39,12 +40,23 @@ export interface ModifySetResponse {
   name: string;
   stock_type: string;
   allow_multiple_quantity: boolean;
+  count_items?: number;
   mod_options: ModifySetResponseOption[];
   [key: string]: unknown;
 }
 
 export interface ModifySetCreateResponse {
   modify_set: ModifySetResponse;
+}
+
+export interface ModifySetListResponse {
+  metadata: {
+    total: number;
+    page: number;
+    version?: number;
+    limit: number;
+  };
+  mod_sets: ModifySetResponse[];
 }
 
 export interface ModifySetMappingResult {

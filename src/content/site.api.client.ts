@@ -10,6 +10,7 @@ import type {
 import type {
   ModifySetCreateRequest,
   ModifySetCreateResponse,
+  ModifySetListResponse,
   ModifySetMappingResponse
 } from "@shared/types/modify-set.types";
 import { createApiError } from "@shared/http/api-error";
@@ -99,6 +100,18 @@ export class SiteApiClient {
       method: "PUT",
       path: `/admin/items/${encodeURIComponent(clientId)}.json`,
       body: JSON.stringify({ item })
+    });
+  }
+
+  async getModifySets(page: number, limit: number, name = ""): Promise<ModifySetListResponse> {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      name
+    });
+    return this.request<ModifySetListResponse>({
+      method: "GET",
+      path: `/admin/modify_sets.json?${params.toString()}`
     });
   }
 

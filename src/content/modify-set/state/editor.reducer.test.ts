@@ -108,6 +108,37 @@ describe("modifySetEditorReducer", () => {
     });
   });
 
+  it("replace_sets clears per-set interaction state", () => {
+    const initial = createInitialModifySetEditorState();
+    const set = getBaseSet({ localId: initial.sets[0]!.localId });
+    const nextSet = getBaseSet({ localId: "next-set", name: "Imported" });
+    const opened = modifySetEditorReducer(
+      {
+        ...initial,
+        sets: [set],
+        selectedRowsBySetId: { [set.localId]: ["row-1"] },
+        rowAnchorsBySetId: { [set.localId]: 0 },
+        activeCell: { setLocalId: set.localId, row: 0, col: 0 },
+        fillState: { setLocalId: set.localId, fromRow: 0, col: 0, value: "A" }
+      },
+      {
+        type: "open_picker",
+        localId: set.localId,
+        items: set.mappingItems
+      }
+    );
+
+    const next = modifySetEditorReducer(opened, { type: "replace_sets", nextSets: [nextSet] });
+
+    expect(next.sets).toEqual([nextSet]);
+    expect(next.selectedRowsBySetId).toEqual({});
+    expect(next.rowAnchorsBySetId).toEqual({});
+    expect(next.activeCell).toBeNull();
+    expect(next.fillState).toBeNull();
+    expect(next.pickerTargetSetId).toBeNull();
+    expect(next.pickerSelectedItemsMap.size).toBe(0);
+  });
+
   it("applies non-overflow paste directly to the current set", () => {
     const initial = createInitialModifySetEditorState();
     const set = {

@@ -5,12 +5,28 @@ import { ModifySetCard } from "./components/ModifySetCard";
 import { ModifySetPasteOverflowModal } from "./components/ModifySetPasteOverflowModal";
 import { ModifySetPickerModal } from "./components/ModifySetPickerModal";
 import { ModifySetToolbar } from "./components/ModifySetToolbar";
+import { ModifySetTransferCard } from "./components/ModifySetTransferCard";
 import { useModifySetCatalog } from "./hooks/useModifySetCatalog";
 import { useModifySetEditor } from "./hooks/useModifySetEditor";
 import { useModifySetSubmission } from "./hooks/useModifySetSubmission";
+import {
+  createServerModifySetExportFile,
+  downloadTextFile,
+  type ModifySetExportFormat
+} from "./export";
+import { importModifySetsFromFile, type ModifySetImportFormat } from "./import";
 import type { MainCol, ModifySetTabProps } from "./types";
 
+function toMessage(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
+
 export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog }: ModifySetTabProps): React.JSX.Element {
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [isImporting, setIsImporting] = React.useState(false);
   const editor = useModifySetEditor();
   const catalog = useModifySetCatalog(apiClient, onStatusText);
   const submission = useModifySetSubmission({
@@ -85,12 +101,81 @@ export function ModifySetTab({ apiClient, onStatusText, onShowToast, onDebugLog 
     }
   };
 
+  const handleExport = async (format: ModifySetExportFormat): Promise<void> => {
+    if (!apiClient) {
+      onStatusText("Modify set export unavailable until Sapo context is ready.");
+      onShowToast("Export unavailable until Sapo context is ready.", "warn");
+      return;
+    }
+
+    setIsExporting(true);
+    onStatusText(`Exporting server modify sets as ${format.toUpperCase()}...`);
+    void onDebugLog?.("info", "Exporting server modify sets", { format });
+
+    try {
+      const file = await createServerModifySetExportFile(apiClient, format);
+      downloadTextFile(file.fileName, file.contents, file.mimeType);
+      onStatusText(
+        `Exported ${file.document.total_mod_sets} modify set(s) after scanning ${file.document.total_items_scanned} item(s).`
+      );
+      onShowToast(`Exported ${file.document.total_mod_sets} modify set(s).`, "success");
+      void onDebugLog?.("info", "Server modify set export completed", {
+        format,
+        fileName: file.fileName,
+        totalModSets: file.document.total_mod_sets,
+        totalItemsScanned: file.document.total_items_scanned
+      });
+    } catch (error: unknown) {
+      const message = toMessage(error);
+      onStatusText(`Modify set export failed: ${message}`);
+      onShowToast("Modify set export failed.", "error");
+      void onDebugLog?.("error", "Server modify set export failed", { format, error: message });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImport = async (format: ModifySetImportFormat, file: File): Promise<void> => {
+    setIsImporting(true);
+    onStatusText(`Importing modify sets from ${file.name}...`);
+    void onDebugLog?.("info", "Importing modify sets from file", { format, fileName: file.name });
+
+    try {
+      const importedSets = await importModifySetsFromFile(format, file);
+      editor.replaceSets(importedSets);
+      onStatusText(`Imported ${importedSets.length} modify set(s) from ${file.name}.`);
+      onShowToast(`Imported ${importedSets.length} modify set(s).`, "success");
+      void onDebugLog?.("info", "Modify set import completed", {
+        format,
+        fileName: file.name,
+        totalModSets: importedSets.length
+      });
+    } catch (error: unknown) {
+      const message = toMessage(error);
+      onStatusText(`Modify set import failed: ${message}`);
+      onShowToast("Modify set import failed.", "error");
+      void onDebugLog?.("error", "Modify set import failed", { format, fileName: file.name, error: message });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const isTransferBusy = isExporting || isImporting || editor.state.isSubmitting;
+
   return (
     <div className="spx-modset-layout" onKeyDownCapture={handleTabHotkeys}>
       <div className="spx-modset-grid">
         <div className="spx-modset-sets-panel">
+          <ModifySetTransferCard
+            isBusy={isTransferBusy}
+            canExport={Boolean(apiClient)}
+            onExport={(format) => void handleExport(format)}
+            onImport={(format, file) => void handleImport(format, file)}
+          />
+
           <ModifySetToolbar
             isSubmitting={editor.state.isSubmitting}
+            isActionDisabled={isExporting || isImporting}
             completed={editor.progress.completed}
             total={editor.progress.total}
             percent={editor.progress.percent}

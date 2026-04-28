@@ -212,7 +212,14 @@ export function modifySetEditorReducer(
     case "replace_sets":
       return {
         ...state,
-        sets: action.nextSets
+        sets: action.nextSets,
+        selectedRowsBySetId: {},
+        rowAnchorsBySetId: {},
+        fillState: null,
+        pendingPasteOverflow: null,
+        activeCell: null,
+        pickerTargetSetId: null,
+        pickerSelectedItemsMap: new Map()
       };
 
     case "restore_history":

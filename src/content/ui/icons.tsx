@@ -81,6 +81,12 @@ export const Upload = () => (
   </svg>
 );
 
+export const Download = () => (
+  <svg {...IconProps}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+  </svg>
+);
+
 export const RotateCcw = () => (
   <svg {...IconProps}>
     <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -95,4 +101,3 @@ export const AlertCircle = () => (
     <line x1="12" y1="16" x2="12.01" y2="16" />
   </svg>
 );
-

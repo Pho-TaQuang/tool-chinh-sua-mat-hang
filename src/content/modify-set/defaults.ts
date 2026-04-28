@@ -38,6 +38,7 @@ export function createEmptySet(index: number): ModifySetCardModel {
     maxQuantity: 1,
     isMaxQuantityEdited: false,
     allowMultipleQuantity: false,
+    stockType: "nottrack",
     mappingItems: [],
     rows: ensureTrailingRows([]),
     collapsed: false,

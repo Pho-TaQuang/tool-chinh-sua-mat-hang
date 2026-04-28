@@ -128,6 +128,7 @@ describe("buildModifySetPayload", () => {
   it("reorders option order_number continuously and maps defaults", () => {
     const payload = buildModifySetPayload(
       createSet({
+        stockType: "ingredient",
         rows: [
           {
             rowId: "r1",
@@ -155,6 +156,7 @@ describe("buildModifySetPayload", () => {
     );
 
     expect(payload.modify_set.mod_options).toHaveLength(2);
+    expect(payload.modify_set.stock_type).toBe("ingredient");
     expect(payload.modify_set.mod_options[0]).toMatchObject({
       name: "A",
       order_number: 1,

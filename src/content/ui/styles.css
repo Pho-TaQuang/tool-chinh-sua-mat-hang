@@ -138,6 +138,8 @@
   display: flex;
   flex-direction: row;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -172,7 +174,7 @@
   color: var(--text-sec);
 }
 
-.spx-sync-progress-main > .spx-stat-label {
+.spx-sync-progress-main>.spx-stat-label {
   white-space: nowrap;
   flex: 0 0 var(--spx-progress-count-width);
   text-align: right;
